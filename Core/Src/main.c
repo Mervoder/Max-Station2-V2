@@ -37,11 +37,23 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define LORA_RX_BUFFER_SIZE 75
+#define LORA_RX_BUFFER_SIZE 72
 #define RX_BUFFER_SIZE 128
 #define HYI_BUFFER_SIZE 78
 
 #define TAKIM_ID 31
+
+
+
+#define CMD_SET_REG 0xC0 // COMMAND FOR SETTING REGISTER
+#define CMD_READ_REG 0xC1 // COMMAND FOR READING REGISTER
+#define REG_ADD_H 0x0 // DEVICE ADDRESS HIGH BYTE
+#define REG_ADD_L 0x1 // DEVICE ADDRESS LOW BYTE
+#define REG0 0x2 // UART CONFIGURATION REGISTER
+#define REG1 0x3 // RF CONFIGURATION REGISTER
+#define REG2 0x4 // CHANNEL CONTROL
+#define REG3 0x5 // TRANSMISSION PARAMETER CONTROL
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -208,7 +220,7 @@ uint8_t e_flight[2];
 uint8_t e_stage[2];
 uint8_t e_fitil[5];
 uint8_t e_engine_request[3];
-
+int8_t receive_data=0;
 
 
 uint8_t test_index=0;
@@ -276,25 +288,77 @@ void Nextion_SendFloatToTextbox(char* textbox_id, float value);
 //	counthalf++;
 //}
 
+int8_t E220_write_register(uint8_t reg,uint8_t parameter)
+{
+
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, SET);
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, SET);
+
+	HAL_Delay(10);
+
+	uint8_t send_data[4]={CMD_SET_REG,reg,1,parameter};
+	uint8_t receive_data[4]={0};
+
+	HAL_UART_Transmit(&huart3,send_data ,4, 100);
+	HAL_UART_Receive(&huart3, receive_data, 4, 100);
+
+
+	if(receive_data[0]==CMD_READ_REG && receive_data[1]==reg && receive_data[2]==1 && receive_data[3] == parameter)
+		return receive_data[3];
+	else
+		return -1;
+
+}
+int8_t E220_read_register(uint8_t reg)
+{
+
+
+	uint8_t send_data[3]={CMD_READ_REG,reg,1};
+	uint8_t receive_data[4]={0};
+	HAL_UART_Transmit(&huart3,send_data ,3, 100);
+
+
+
+	HAL_UART_Receive(&huart3, receive_data, 4, 100);
+
+	if(receive_data[0]==CMD_READ_REG && receive_data[1]==reg && receive_data[2]==1)
+		return receive_data[3];
+	else
+		return -1;
+}
+int8_t E220_read_register_all(uint8_t *data)
+{
+
+	for(int i=0; i<8;i++){
+		data[i]=E220_read_register(i);
+		HAL_Delay(2);
+		if((int8_t)data[i]==(int8_t)-1)
+			return -1;
+	}
+	return 1;
+
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-//	if(huart == &huart3){
-//	if(rx_data_lora != '\n'&& rx_index_lora < LORA_RX_BUFFER_SIZE){
-//	lora_rx_buffer[rx_index_lora++]=rx_data_lora;
-//
-//	}
-//	else{
-//		rx_data_lora=0;
-//		rx_index_lora=0;
-//
-//		}
-//	HAL_UART_Receive_IT(&huart3, &rx_data_lora, 1);
-//	}
-//
+
 	if(huart == &huart3){
-		countfull++;
-		HAL_UART_Receive_DMA(&huart3, lora_rx_buffer, 75);
+	if(rx_data_lora != '\n'&& rx_index_lora < LORA_RX_BUFFER_SIZE){
+	lora_rx_buffer[rx_index_lora++]=rx_data_lora;
+
 	}
+	else{
+		rx_data_lora=0;
+		rx_index_lora=0;
+
+		}
+	HAL_UART_Receive_IT(&huart3, &rx_data_lora, 1);
+	}
+
+//	if(huart == &huart3){
+//		countfull++;
+//		HAL_UART_Receive_DMA(&huart3, lora_rx_buffer, 75);
+//	}
 
 
 
@@ -375,14 +439,35 @@ int main(void)
   MX_USB_DEVICE_Init();
   MX_USART6_UART_Init();
   /* USER CODE BEGIN 2 */
+  HAL_Delay(100);
+  receive_data =E220_write_register(0x2, 0x62);
+  HAL_Delay(100);
+  receive_data =E220_write_register(0x3, 0x40);
+  HAL_Delay(100);
+  receive_data =E220_write_register(0x4, 0x10); // ch
+  HAL_Delay(100);
+  receive_data =E220_write_register(0x5, 0x40);
+  HAL_Delay(100);
+  receive_data =E220_write_register(0x6, 0x00);
+  HAL_Delay(100);
+  receive_data =E220_write_register(0x7, 0x00);
+  HAL_Delay(100);
+  receive_data =E220_write_register(0, 0x09); // h 0x09
+  HAL_Delay(100);
 
+  receive_data =E220_write_register(0x1, 0x02); // low 0x02
+  HAL_Delay(200);
 
- // HAL_UART_Receive_IT(&huart3, &rx_data_lora, 1);
-  HAL_UART_Receive_DMA(&huart3, lora_rx_buffer, 75);
+  receive_data = E220_read_register(0);
+  HAL_Delay(100);
+  receive_data = E220_read_register(1);
+  HAL_Delay(100);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, SET);//m0
+  HAL_Delay(100);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, RESET); //m1
+  HAL_Delay(100);
 
-
-  HAL_UART_Receive_IT(&huart2,&rx_data, 1);
-  E220_CONFIG(0x7,0x2B,0x12,1); //0x8,0x2A,0x10,1
+ // E220_CONFIG(0x8,0x2F,0x20,1); //0x7 0x2b 0x12 1
   lwgps_init(&gps);
 
   HAL_ADC_Start_IT(&hadc1);
@@ -393,7 +478,18 @@ int main(void)
   HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_4);
 
   tim1=HAL_GetTick();
+
   /* USER CODE END 2 */
+
+//  receive_data =E220_write_register(0, 0x09); // h 0x09
+
+
+
+  //HAL_UART_Receive_DMA(&huart3, lora_rx_buffer, 75);
+  HAL_UART_Receive_IT(&huart3,&rx_data_lora, 1);
+  HAL_UART_Receive_IT(&huart2,&rx_data, 1);
+ //
+
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -404,14 +500,14 @@ int main(void)
 
 
 
-	   if(lora_rx_buffer[3]==1 && lora_rx_buffer[50]==0x32){
+	   if(lora_rx_buffer[0]==1 && lora_rx_buffer[47]==0x32){
 
-		  Booster.satsinview=lora_rx_buffer[4];
+		  Booster.satsinview=lora_rx_buffer[1];
 
 			 float2unit8 f2u8_bgpsalt;
 				 for(uint8_t i=0;i<4;i++)
 				 {
-					 f2u8_bgpsalt.array[i]=lora_rx_buffer[i+5];
+					 f2u8_bgpsalt.array[i]=lora_rx_buffer[i+2];
 					 HYI_BUFFER[34+i]=lora_rx_buffer[i+5]; // 34 35 36 37
 				 }
 				 Booster.gpsaltitude=f2u8_bgpsalt.fVal;
@@ -419,7 +515,7 @@ int main(void)
 
 				 for(uint8_t i=0;i<4;i++)
 				 {
-					 f2u8_blatitude.array[i]=lora_rx_buffer[i+9];
+					 f2u8_blatitude.array[i]=lora_rx_buffer[i+6];
 					 HYI_BUFFER[38+i]=lora_rx_buffer[i+9]; // 38 39 40 41
 				 }
 				 Booster.gpslatitude=f2u8_blatitude.fVal;
@@ -427,7 +523,7 @@ int main(void)
 			 float2unit8 f2u8_blongitude;
 				 for(uint8_t i=0;i<4;i++)
 				 {
-					 f2u8_blongitude.array[i]=lora_rx_buffer[i+13];
+					 f2u8_blongitude.array[i]=lora_rx_buffer[i+10];
 					 HYI_BUFFER[42+i]=lora_rx_buffer[i+13]; // 42 43 44 45
 				 }
 				 Booster.gpslongitude=f2u8_blongitude.fVal;
@@ -435,7 +531,7 @@ int main(void)
 			 float2unit8 f2u8_baltitude;
 				 for(uint8_t i=0;i<4;i++)
 				 {
-					f2u8_baltitude.array[i]=lora_rx_buffer[i+17];
+					f2u8_baltitude.array[i]=lora_rx_buffer[i+14];
 				 }
 				 Booster.altitude=f2u8_baltitude.fVal;
 
@@ -443,75 +539,75 @@ int main(void)
 
 				 for(uint8_t i=0;i<4;i++)
 				 {
-					 f2u8_bspeed.array[i]=lora_rx_buffer[i+21];
+					 f2u8_bspeed.array[i]=lora_rx_buffer[i+18];
 				 }
 				 Booster.speed=f2u8_bspeed.fVal;
 
 			 float2unit8 f2u8_btemp;
 				 for(uint8_t i=0;i<4;i++)
 				 {
-					 f2u8_btemp.array[i]=lora_rx_buffer[i+25];
+					 f2u8_btemp.array[i]=lora_rx_buffer[i+22];
 				 }
 				 Booster.temperature=f2u8_btemp.fVal;
 
 			 float2unit8 f2u8_baccx;
 				 for(uint8_t i=0;i<4;i++)
 				 {
-					 f2u8_baccx.array[i]=lora_rx_buffer[i+29];
+					 f2u8_baccx.array[i]=lora_rx_buffer[i+26];
 				 }
 				 Booster.accx=f2u8_baccx.fVal;
 
 			float2unit8 f2u8_baccy;
 				 for(uint8_t i=0;i<4;i++)
 				 {
-					 f2u8_baccy.array[i]=lora_rx_buffer[i+33];
+					 f2u8_baccy.array[i]=lora_rx_buffer[i+30];
 				 }
 				 Booster.accy=f2u8_baccy.fVal;
 
 			float2unit8 f2u8_baccz;
 			      for(uint8_t i=0;i<4;i++)
 				 {
-			    	  f2u8_baccz.array[i]=lora_rx_buffer[i+37];
+			    	  f2u8_baccz.array[i]=lora_rx_buffer[i+34];
 				 }
 			      Booster.accz=f2u8_baccz.fVal;
 
 			float2unit8 f2u8_broll;
 				  for(uint8_t i=0;i<4;i++)
 				 {
-					  f2u8_broll.array[i]=lora_rx_buffer[i+41];
+					  f2u8_broll.array[i]=lora_rx_buffer[i+38];
 				 }
 				  Booster.normal=f2u8_broll.fVal;
 
 			float2unit8 f2u8_bpitch;
 				  for(uint8_t i=0;i<4;i++)
 				 {
-					  f2u8_bpitch.array[i]=lora_rx_buffer[i+45];
+					  f2u8_bpitch.array[i]=lora_rx_buffer[i+42];
 				 }
 				  Booster.pitch=f2u8_bpitch.fVal;
 
-				  Booster.battery=lora_rx_buffer[49];
-				  Booster.mod=lora_rx_buffer[73];
-				  Booster.communication=lora_rx_buffer[51];
+				  Booster.battery=lora_rx_buffer[46];
+				  Booster.mod=lora_rx_buffer[70];
+				  Booster.communication=lora_rx_buffer[48];
 
-				  f2u8_baltitude.array[0] = lora_rx_buffer[69];
-				  f2u8_baltitude.array[1] = lora_rx_buffer[70];
-				  f2u8_baltitude.array[2] = lora_rx_buffer[71];
-				  f2u8_baltitude.array[3] = lora_rx_buffer[72];
+				  f2u8_baltitude.array[0] = lora_rx_buffer[66];
+				  f2u8_baltitude.array[1] = lora_rx_buffer[67];
+				  f2u8_baltitude.array[2] = lora_rx_buffer[68];
+				  f2u8_baltitude.array[3] = lora_rx_buffer[69];
 				  Booster.maxAltitude = f2u8_baltitude.fVal;
 
 				  HAL_UART_Transmit(&huart6, lora_rx_buffer, 75,1000);
 	  	  }
 
-	     else if(lora_rx_buffer[3]==3 && lora_rx_buffer[50]==0x33)
+	     else if(lora_rx_buffer[0]==3 && lora_rx_buffer[47]==0x33)
 		  {
 
 		  Payload.satsinview=lora_rx_buffer[4];
 
 		  Payload_union_converter();
 
-		  Payload.battery=lora_rx_buffer[49];
-		  Payload.mod=lora_rx_buffer[73];
-		  Payload.communication=lora_rx_buffer[51];
+		  Payload.battery=lora_rx_buffer[46];
+		  Payload.mod=lora_rx_buffer[70];
+		  Payload.communication=lora_rx_buffer[48];
 	        // payload ekran
 
 		  HAL_UART_Transmit(&huart6, lora_rx_buffer, 75,1000);
@@ -964,7 +1060,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void E220_CONFIG(uint8_t ADDH, uint8_t ADDL, uint8_t CHN, uint8_t MODE)
 {
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, SET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, SET);
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, SET);
     HAL_Delay(50);
 
@@ -978,16 +1074,9 @@ void E220_CONFIG(uint8_t ADDH, uint8_t ADDL, uint8_t CHN, uint8_t MODE)
     cfg_buff[3] = 0x00;
     cfg_buff[4] = CHN;
 
-    switch(mode){
-        case Transparent:
-            cfg_buff[5] = 0x00;  // opsiyon
-            break;
-        case Fixed:
-            cfg_buff[5] = 0x11;
-            break;
-        default:
-            cfg_buff[5] = 0x11;
-     }
+
+	cfg_buff[5] = 0x40;
+
 
      cfg_buff[6] = 0x00;
      cfg_buff[7] = 0x00;
@@ -996,7 +1085,7 @@ void E220_CONFIG(uint8_t ADDH, uint8_t ADDL, uint8_t CHN, uint8_t MODE)
     HAL_UART_Transmit(&huart3, (uint8_t*) cfg_buff, 8, 1000);
 
     HAL_Delay(25);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, RESET);
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, RESET);
     HAL_Delay(25);
 }
@@ -1179,7 +1268,7 @@ void Payload_union_converter(void)
 	 float2unit8 f2u8;
 			 for(uint8_t i=0;i<4;i++)
 			 {
-				 f2u8.array[i]=lora_rx_buffer[i+5];
+				 f2u8.array[i]=lora_rx_buffer[i+2];
 				 HYI_BUFFER[22+i]=lora_rx_buffer[i+5]; // 34 35 36 37
 			 }
 			 Payload.gpsaltitude=f2u8.fVal;
@@ -1187,70 +1276,70 @@ void Payload_union_converter(void)
 
 			 for(uint8_t i=0;i<4;i++)
 			 {
-				 f2u8.array[i]=lora_rx_buffer[i+9];
+				 f2u8.array[i]=lora_rx_buffer[i+6];
 				 HYI_BUFFER[26+i]=lora_rx_buffer[i+9]; // 38 39 40 41
 			 }
 			 Payload.gpslatitude=f2u8.fVal;
 
 			 for(uint8_t i=0;i<4;i++)
 			 {
-				 f2u8.array[i]=lora_rx_buffer[i+13];
+				 f2u8.array[i]=lora_rx_buffer[i+10];
 				 HYI_BUFFER[30+i]=lora_rx_buffer[i+13]; // 42 43 44 45
 			 }
 			 Payload.gpslongitude=f2u8.fVal;
 
 			 for(uint8_t i=0;i<4;i++)
 			 {
-				 f2u8.array[i]=lora_rx_buffer[i+17];
+				 f2u8.array[i]=lora_rx_buffer[i+14];
 			 }
 			 Payload.altitude=f2u8.fVal;
 
 
 			 for(uint8_t i=0;i<4;i++)
 			 {
-				 f2u8.array[i]=lora_rx_buffer[i+21];
+				 f2u8.array[i]=lora_rx_buffer[i+18];
 			 }
 			 Payload.speed=f2u8.fVal;
 
 
 			 for(uint8_t i=0;i<4;i++)
 			 {
-				 f2u8.array[i]=lora_rx_buffer[i+25];
+				 f2u8.array[i]=lora_rx_buffer[i+22];
 			 }
 			 Payload.temperature=f2u8.fVal;
 
 
 			 for(uint8_t i=0;i<4;i++)
 			 {
-				 f2u8.array[i]=lora_rx_buffer[i+29];
+				 f2u8.array[i]=lora_rx_buffer[i+26];
 			 }
 			 Payload.accx=f2u8.fVal;
 
 
 			 for(uint8_t i=0;i<4;i++)
 			 {
-				 f2u8.array[i]=lora_rx_buffer[i+33];
+				 f2u8.array[i]=lora_rx_buffer[i+30];
 			 }
 			 Payload.accy=f2u8.fVal;
 
 
 		      for(uint8_t i=0;i<4;i++)
 			 {
-		    	  f2u8.array[i]=lora_rx_buffer[i+37];
+		    	  f2u8.array[i]=lora_rx_buffer[i+34];
 			 }
 		      Payload.accz=f2u8.fVal;
 
 
 			  for(uint8_t i=0;i<4;i++)
 			 {
-				  f2u8.array[i]=lora_rx_buffer[i+41];
+				  f2u8.array[i]=lora_rx_buffer[i+38];
 			 }
 			  Payload.normal=f2u8.fVal;
 
 
 			  for(uint8_t i=0;i<4;i++)
 			 {
-				  f2u8.array[i]=lora_rx_buffer[i+45];
+				  f2u8.array[i]=lora_rx_buffer[i+42];
 			 }
 			  Payload.pitch=f2u8.fVal;
 }
